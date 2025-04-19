@@ -3,7 +3,6 @@ var express = require("express");
 var https = require("https");
 const fs = require("fs");
 
-const WebRequest = require("@mhzq/mhzqframework").Web.Http.HttpRequest.HttpRequest;
 const bodyParser = require('body-parser');
 express = express();
 
@@ -25,7 +24,7 @@ try {
 }
 
 var authorizationString = "Bearer socketServer_5fc222d8dc5ba0f1f54faf47744";
-var service = new WebRequest("citymedia.synology.me", 8080);
+const erpUrl = process.env.ERPURL;
 
 
 var server = express.listen(40005, '0.0.0.0', () => {
@@ -40,15 +39,15 @@ var server = express.listen(40005, '0.0.0.0', () => {
 
 
 
-var pis = [];
+var machines = new Map();
 
-function findRelatedPi(socket) {
-    var piSocket = pis.find((o) => {
-        return io.sockets.sockets.get(o).room == socket.room;
-    });
-    piSocket = io.sockets.sockets.get(piSocket);
-    return piSocket;
-}
+// function findRelatedPi(socket) {
+//     var piSocket = pis.find((o) => {
+//         return io.sockets.sockets.get(o).room == socket.room;
+//     });
+//     piSocket = io.sockets.sockets.get(piSocket);
+//     return piSocket;
+// }
 
 var io = require('socket.io')(server, {
     cors: {
@@ -94,200 +93,226 @@ function SetupIo(io, ioHttps = undefined) {
         next();
     });
 
-    
+    async function setupMachineEvents(room, socket) {
+        // A gépet eltároljuk
+        machines.set(room, socket);
+        // szobába csatlakoztatjuk 
+        socket.join(room);
+
+        //notify Telemetry about machine's connect
+        fetch(`${erpUrl}/Control/CityMedia/Telemetry/Telemetry/PiConnect/`,
+            {
+                method: "POST"
+                , headers: {
+                    Authorization: authorizationString
+                    , "Content-Type": "application/json"
+                }
+                , timeout: 40000
+                , body: JSON.stringify({ serialNumber: room, ipAddress: socket.handshake.address })
+            }
+        ).catch(error => {
+            console.log(error);
+        });
+
+
+        socket.on("testPiEvent", (data) => {
+            socket.to(room).emit("testPiEvent", {room: room, data: data});
+            if (ioHttps) {
+                ioHttps.sockets.to(room).emit("testPiEvent", {room: room, data: data});
+            }
+        });
+
+        socket.on("infoChange", (data) => {
+            socket.to(room).emit("infoChange", {room: room, data: data});
+            if (ioHttps) {
+                ioHttps.sockets.to(room).emit("infoChange", {room: room, data: data});
+            }
+        });
+
+        socket.on("coinCount", (data) => {
+            socket.to(room).emit("coinCount", {room: room, data: data});
+            if (ioHttps) {
+                ioHttps.sockets.to(room).emit("coinCount", data);
+            }
+        });
+
+        socket.on("rawError", (data) => {
+            socket.to(room).emit("rawError", {room: room, data: data});
+            if (ioHttps) {
+                ioHttps.sockets.to(room).emit("rawError", data);
+            }
+        });
+
+        socket.to(room).emit("piconnected", {room: room, data: { connected: true }});
+        if (ioHttps) {
+            ioHttps.sockets.to(room).emit("piconnected", { connected: true });
+        }
+
+
+        socket.on('disconnect', function () {
+
+            //notify Telemetry about pi's disconnect
+            socket.to(room).emit("piconnected", {room: room, data: { connected: false }});
+            if (ioHttps) {
+                ioHttps.sockets.to(room).emit("piconnected", { connected: false });
+            }
+
+            //notify Telemetry about machine's connect
+            fetch(`${erpUrl}/Control/CityMedia/Telemetry/Telemetry/PiDisconnect/`,
+                {
+                    method: "POST"
+                    , headers: {
+                        Authorization: authorizationString
+                        , "Content-Type": "application/json"
+                    }
+                    , timeout: 40000
+                    , body: JSON.stringify({ serialNumber: room })
+                }
+            ).catch(error => {
+                console.log(error);
+            });
+
+        });
+
+
+    }
+
+    async function setupClientEvents(room, socket) {
+
+        //find pi connected to this room
+        var piSocket = machines.get(room);
+
+        socket.on("update", ({room, data}, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && piSocket == null || !piSocket.connected) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("update", data, cb);
+            }
+        });
+        socket.on("tossACoinToYourWitcher", ({room, data}, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && piSocket == null || !piSocket.connected) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("tossACoinToYourWitcher", data, cb);
+            }
+        });
+
+        socket.on("getInfo", ({room, data}, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("getInfo", data, cb);
+            }
+        });
+
+        socket.on("getErrors", ({room, data}, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("getErrors", data, cb);
+            }
+        });
+
+
+        socket.on("deleteErrors", ({room, data}, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("deleteErrors", data, cb);
+            }
+        });
+
+
+        socket.on("emptyHopper", (data, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("emptyHopper", data, cb);
+            }
+        });
+
+        socket.on("fillUpHopper", (data, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("fillUpHopper", data, cb);
+            }
+        });
+
+        socket.on("updateFirmware", (data, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("updateFirmware", data, cb);
+            }
+        });
+
+        socket.on("restart", (data, cb) => {
+            var piSocket = machines.get(room);
+            if (cb != null && (piSocket == null || !piSocket.connected)) {
+                cb(null, { message: "Pi currently unavailable" });
+            }
+            if (piSocket != null && piSocket.connected) {
+
+                piSocket.emit("restart", data, cb);
+            }
+        });
+
+
+
+        var piConnected = piSocket !== undefined && piSocket.connected;
+        socket.emit("piconnected", {room: room, data:{ connected: piConnected }});
+    }
 
     io.on('connection', function (socket) {// WebSocket Connection
 
         console.log("Connected " + socket.handshake.address);
 
-        //@TODO each room for pi
-        socket.join(socket.room);
-
-        if (socket.type === "pi") {
-
-
-            var serialNumber = socket.room;
-
-            pis.push(socket.id);
-
-            //notify Telemetry about pi's connect
-            service.post({ path: "/api/Control/CityMedia/Telemetry/Telemetry/PiConnect", headers: { Authorization: authorizationString }, timeout: 40000 }, { serialNumber: serialNumber, ipAddress: socket.handshake.address }).then(data => {
-
-            }).catch(error => {
-                console.log(error);
-            });
-
-            socket.on("testPiEvent", (data) => {
-                socket.to(socket.room).emit("testPiEvent", data);
-                if(ioHttps){
-                    ioHttps.sockets.to(socket.room).emit("testPiEvent", data);
-                }
-            });
-
-            socket.on("infoChange", (data) => {
-                socket.to(socket.room).emit("infoChange", data);
-                if(ioHttps){
-                    ioHttps.sockets.to(socket.room).emit("infoChange", data);
-                }
-            });
-
-            socket.on("coinCount", (data) => {
-                socket.to(socket.room).emit("coinCount", data);
-                if(ioHttps){
-                    ioHttps.sockets.to(socket.room).emit("coinCount", data);
-                }
-            });
-
-            socket.on("rawError", (data) => {
-                socket.to(socket.room).emit("rawError", data);
-                if(ioHttps){
-                    ioHttps.sockets.to(socket.room).emit("rawError", data);
-                }
-            });
-
-            socket.to(socket.room).emit("piconnected", { connected: true });
-            if(ioHttps){
-                ioHttps.sockets.to(socket.room).emit("piconnected", { connected: true });
+        //legacy support
+        if (socket.room) {
+            socket.join(socket.room);
+            if (socket.type === "pi") {
+                setupMachineEvents(socket.room, socket);
+            } else {
+                setupClientEvents(socket.room, socket);
             }
-
-
-            socket.on('disconnect', function () {
-
-                //notify Telemetry about pi's disconnect
-                socket.to(socket.room).emit("piconnected", { connected: false });
-                if(ioHttps){
-                    ioHttps.sockets.to(socket.room).emit("piconnected", { connected: false });
-                }
-
-                var indx = pis.findIndex((o) => {
-                    return o == socket.id;
-                });
-
-
-
-                service.post({ path: "/api/Control/CityMedia/Telemetry/Telemetry/PiDisconnect", headers: { Authorization: authorizationString }, timeout: 40000 }, { serialNumber: serialNumber }).then(data => {
-
-                }).catch(error => {
-                    console.log(error);
-                });
-
-                if (indx > -1) {
-                    pis.splice(indx, 1);
-                }
-
-            });
-
-        } else {
-
-            //find pi connected to this room
-
-            var piSocket = findRelatedPi(socket);
-            socket.on("update", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("update", data, cb);
-                }
-            });
-            socket.on("tossACoinToYourWitcher", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("tossACoinToYourWitcher", data, cb);
-                }
-            });
-
-            socket.on("getInfo", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("getInfo", data, cb);
-                }
-            });
-
-            socket.on("getErrors", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("getErrors", data, cb);
-                }
-            });
-
-
-            socket.on("deleteErrors", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("deleteErrors", data, cb);
-                }
-            });
-
-
-            socket.on("emptyHopper", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("emptyHopper", data, cb);
-                }
-            });
-
-            socket.on("fillUpHopper", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("fillUpHopper", data, cb);
-                }
-            });
-
-            socket.on("updateFirmware", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("updateFirmware", data, cb);
-                }
-            });
-
-            socket.on("restart", (data, cb) => {
-                var piSocket = findRelatedPi(socket);
-                if (cb != null && piSocket == null || !piSocket.connected) {
-                    cb(null, { message: "Pi currently unavailable" });
-                }
-                if (piSocket != null && piSocket.connected) {
-
-                    piSocket.emit("restart", data, cb);
-                }
-            });
-
-
-
-            var piConnected = piSocket !== undefined && piSocket.connected;
-            socket.emit("piconnected", { connected: piConnected });
-
         }
+
+        // Csatlakozás szobába
+        socket.on("joinRoom", ({ room, isMachine }) => {
+            socket.join(room);
+            socket.room = room;
+            if (isMachine) {
+                setupMachineEvents(room, socket);
+            } else {
+                setupClientEvents(room, socket)
+            }
+        });
+
 
 
 

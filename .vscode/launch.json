@@ -11,6 +11,9 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
+            "env": {
+                "ERPURL": "https://citymedia.synology.me"
+            },
             "program": "${workspaceFolder}\\src\\app.js"
         }
     ]
