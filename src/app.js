@@ -16,6 +16,7 @@ try {
     var credentials = { key: privateKey, cert: certificate };
     var httpsServer = https.createServer(credentials, express);
     httpsServer = httpsServer.listen(40006, '0.0.0.0', () => {
+        console.log(`Ct coin server https app listening on port 40006!`)
 
     });
     var ioHttps = createHttpsServer(httpsServer);
@@ -28,10 +29,7 @@ const erpUrl = process.env.ERPURL;
 
 
 var server = express.listen(40005, '0.0.0.0', () => {
-    console.log(`Example app listening on port 40005!`)
-
-    var cmd = null;
-
+    console.log(`Ct coin server http app listening on port 40005!`)
 
 });
 
@@ -94,12 +92,8 @@ function SetupIo(io, ioHttps = undefined) {
     });
 
     async function setupMachineEvents(room, socket) {
-        // A gépet eltároljuk
-        machines.set(room, socket);
-        // szobába csatlakoztatjuk 
-        socket.join(room);
 
-        //notify Telemetry about machine's connect
+        //jelezzük a kapcsolódás tényét
         fetch(`${erpUrl}/Control/CityMedia/Telemetry/Telemetry/PiConnect/`,
             {
                 method: "POST"
@@ -114,45 +108,65 @@ function SetupIo(io, ioHttps = undefined) {
             console.log(error);
         });
 
+        socket.to(room).emit("piconnected", { room: room, data: { connected: true } });
+        if (ioHttps) {
+            ioHttps.sockets.to(room).emit("piconnected", { connected: true });
+        }
+
+        //további eventek már be vannak állítva
+        if (socket.machineEventsSet) return; // már be van állítva
+        socket.machineEventsSet = true;
+
+        // A gépet eltároljuk
+        machines.set(room.toString(), socket);
+        // szobába csatlakoztatjuk 
+        socket.join(room);
+
+        //notify Telemetry about machine's connect
+
 
         socket.on("testPiEvent", (data) => {
-            socket.to(room).emit("testPiEvent", {room: room, data: data});
+            socket.to(room).emit("testPiEvent", { room: room, data: data });
             if (ioHttps) {
-                ioHttps.sockets.to(room).emit("testPiEvent", {room: room, data: data});
+                ioHttps.sockets.to(room).emit("testPiEvent", { room: room, data: data });
             }
         });
 
         socket.on("infoChange", (data) => {
-            socket.to(room).emit("infoChange", {room: room, data: data});
+            socket.to(room).emit("infoChange", { room: room, data: data });
             if (ioHttps) {
-                ioHttps.sockets.to(room).emit("infoChange", {room: room, data: data});
+                ioHttps.sockets.to(room).emit("infoChange", { room: room, data: data });
             }
         });
 
         socket.on("coinCount", (data) => {
-            socket.to(room).emit("coinCount", {room: room, data: data});
+            socket.to(room).emit("coinCount", { room: room, data: data });
             if (ioHttps) {
                 ioHttps.sockets.to(room).emit("coinCount", data);
             }
         });
 
+        socket.on("updateProgress", (data) => {
+            socket.to(room).emit("updateProgress", { room: room, data: data });
+            if (ioHttps) {
+                ioHttps.sockets.to(room).emit("updateProgress", data);
+            }
+        });
+
         socket.on("rawError", (data) => {
-            socket.to(room).emit("rawError", {room: room, data: data});
+            socket.to(room).emit("rawError", { room: room, data: data });
             if (ioHttps) {
                 ioHttps.sockets.to(room).emit("rawError", data);
             }
         });
 
-        socket.to(room).emit("piconnected", {room: room, data: { connected: true }});
-        if (ioHttps) {
-            ioHttps.sockets.to(room).emit("piconnected", { connected: true });
-        }
+
 
 
         socket.on('disconnect', function () {
 
             //notify Telemetry about pi's disconnect
-            socket.to(room).emit("piconnected", {room: room, data: { connected: false }});
+            socket.to(room).emit("piconnected", { room: room, data: { connected: false } });
             if (ioHttps) {
                 ioHttps.sockets.to(room).emit("piconnected", { connected: false });
             }
@@ -177,12 +191,27 @@ function SetupIo(io, ioHttps = undefined) {
 
     }
 
-    async function setupClientEvents(room, socket) {
+    async function setupClientEvents(roomParam, socket) {
 
+        //jelezzük a kapcsolódás tényét
         //find pi connected to this room
-        var piSocket = machines.get(room);
+        var piSocket = machines.get(roomParam);
+        var piConnected = piSocket !== undefined && piSocket.connected;
+        // if(roomParam == "501"){
+        //     var a = 0;
+        // }
+        socket.emit("piconnected", { room: roomParam, data: { connected: piConnected } });
 
-        socket.on("update", ({room, data}, cb) => {
+        //további eventek már be vannak állítva
+        if (socket.clientEventsSet) return; // már be van állítva
+        socket.clientEventsSet = true;
+
+
+
+        socket.on("update", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && piSocket == null || !piSocket.connected) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -192,7 +221,10 @@ function SetupIo(io, ioHttps = undefined) {
                 piSocket.emit("update", data, cb);
             }
         });
-        socket.on("tossACoinToYourWitcher", ({room, data}, cb) => {
+        socket.on("tossACoinToYourWitcher", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && piSocket == null || !piSocket.connected) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -203,7 +235,10 @@ function SetupIo(io, ioHttps = undefined) {
             }
         });
 
-        socket.on("getInfo", ({room, data}, cb) => {
+        socket.on("getInfo", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -214,8 +249,16 @@ function SetupIo(io, ioHttps = undefined) {
             }
         });
 
-        socket.on("getErrors", ({room, data}, cb) => {
+        socket.on("getErrors", ({ room, data }, cb) => {
+            // if (!socket.rooms.has(room)) {
+            //     console.warn(`Socket not in room ${room}, ignoring event`);
+            //     return;
+            // }
+            if (roomParam !== room) {
+                return;
+            }
             var piSocket = machines.get(room);
+            console.log(roomParam, room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
             }
@@ -226,7 +269,10 @@ function SetupIo(io, ioHttps = undefined) {
         });
 
 
-        socket.on("deleteErrors", ({room, data}, cb) => {
+        socket.on("deleteErrors", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -238,7 +284,10 @@ function SetupIo(io, ioHttps = undefined) {
         });
 
 
-        socket.on("emptyHopper", (data, cb) => {
+        socket.on("emptyHopper", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -249,7 +298,10 @@ function SetupIo(io, ioHttps = undefined) {
             }
         });
 
-        socket.on("fillUpHopper", (data, cb) => {
+        socket.on("fillUpHopper", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -260,7 +312,10 @@ function SetupIo(io, ioHttps = undefined) {
             }
         });
 
-        socket.on("updateFirmware", (data, cb) => {
+        socket.on("updateFirmware", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -271,7 +326,10 @@ function SetupIo(io, ioHttps = undefined) {
             }
         });
 
-        socket.on("restart", (data, cb) => {
+        socket.on("restart", ({ room, data }, cb) => {
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
@@ -283,9 +341,11 @@ function SetupIo(io, ioHttps = undefined) {
         });
 
 
+        socket.on('disconnect', function () {
 
-        var piConnected = piSocket !== undefined && piSocket.connected;
-        socket.emit("piconnected", {room: room, data:{ connected: piConnected }});
+            console.log("Disconnected " + socket.handshake.address);
+
+        });
     }
 
     io.on('connection', function (socket) {// WebSocket Connection
@@ -304,12 +364,18 @@ function SetupIo(io, ioHttps = undefined) {
 
         // Csatlakozás szobába
         socket.on("joinRoom", ({ room, isMachine }) => {
+            if(!room){
+                return;
+            }
+            room = room ? room.toString() : null;
             socket.join(room);
             socket.room = room;
             if (isMachine) {
                 setupMachineEvents(room, socket);
+
             } else {
-                setupClientEvents(room, socket)
+                setupClientEvents(room, socket);
+                
             }
         });
 
