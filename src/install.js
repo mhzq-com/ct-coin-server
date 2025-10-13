@@ -29,7 +29,7 @@ switch(process.platform){
 
 // Create a new service object
 var svc = new Service({
-  name:'citymediasocketserverservice',
+  name:'ctsocketserver',
   description: 'CityMedia socket server service',
   script: __dirname + '/app.js',
   nodeOptions: [
