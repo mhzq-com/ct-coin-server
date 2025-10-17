@@ -110,7 +110,7 @@ function SetupIo(io, ioHttps = undefined) {
 
         socket.to(room).emit("piconnected", { room: room, data: { connected: true } });
         if (ioHttps) {
-            ioHttps.sockets.to(room).emit("piconnected", { connected: true });
+            ioHttps.sockets.to(room).emit("piconnected", { room: room, data: { connected: true } });
         }
 
         //további eventek már be vannak állítva
@@ -168,7 +168,7 @@ function SetupIo(io, ioHttps = undefined) {
             //notify Telemetry about pi's disconnect
             socket.to(room).emit("piconnected", { room: room, data: { connected: false } });
             if (ioHttps) {
-                ioHttps.sockets.to(room).emit("piconnected", { connected: false });
+                ioHttps.sockets.to(room).emit("piconnected",  { room: room, data: { connected: false } });
             }
 
             //notify Telemetry about machine's connect
