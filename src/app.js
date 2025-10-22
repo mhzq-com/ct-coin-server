@@ -199,10 +199,12 @@ function SetupIo(io, ioHttps = undefined) {
         //find pi connected to this room
         var piSocket = machines.get(roomParam);
         var piConnected = piSocket !== undefined && piSocket.connected;
-        // if(roomParam == "501"){
-        //     var a = 0;
-        // }
+        
         socket.emit("piconnected", { room: roomParam, data: { connected: piConnected } });
+        if (ioHttps) {
+            ioHttps.sockets.to(roomParam).emit("piconnected", { room: roomParam, data: { connected: piConnected } });
+        }
+
 
         //további eventek már be vannak állítva
         if (socket.clientEventsSet) return; // már be van állítva
@@ -256,11 +258,10 @@ function SetupIo(io, ioHttps = undefined) {
             //     console.warn(`Socket not in room ${room}, ignoring event`);
             //     return;
             // }
-            if (roomParam !== room) {
-                return;
-            }
+            // if (roomParam !== room) {
+            //     return;
+            // }
             var piSocket = machines.get(room);
-            console.log(roomParam, room);
             if (cb != null && (piSocket == null || !piSocket.connected)) {
                 cb(null, { message: "Pi currently unavailable" });
             }
